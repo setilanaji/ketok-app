@@ -1,0 +1,7 @@
+{
+  "instructions": [
+    ".opencode/rules/code-review.md",
+    ".opencode/rules/security.md",
+    ".opencode/rules/performance.md"
+  ]
+}

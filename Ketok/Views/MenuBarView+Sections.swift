@@ -1466,7 +1466,7 @@ extension MenuBarView {
             HStack(spacing: 6) {
                 // Send via email
                 Button {
-                    feedbackService.submitViaEmail(
+                    feedbackService.submitFeedback(
                         type: feedbackType,
                         rating: feedbackRating,
                         message: feedbackMessage,

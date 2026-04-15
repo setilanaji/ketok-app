@@ -98,6 +98,9 @@ struct MenuBarView: View {
     @State var showBuildMatrix = false
     @StateObject var buildMatrixService = BuildMatrixService()
 
+    // Periodic git branch refresh (every 8s while menu is open)
+    private let branchRefreshTimer = Timer.publish(every: 8, on: .main, in: .common).autoconnect()
+
     var body: some View {
         VStack(spacing: 0) {
             headerView
@@ -290,6 +293,15 @@ struct MenuBarView: View {
         .onAppear {
             gitService.refreshBranches(for: projectStore.projects)
             adbService.startMonitoring()
+        }
+        .onChange(of: selectedProject?.id) { _, _ in
+            reconcileSelection()
+        }
+        .onChange(of: gitService.branches) { _, _ in
+            reconcileSelection()
+        }
+        .onReceive(branchRefreshTimer) { _ in
+            gitService.refreshBranches(for: projectStore.projects)
         }
         .onDrop(of: [.fileURL], isTargeted: Binding(
             get: { dragDropService.isDraggingOver },
@@ -2228,6 +2240,36 @@ struct MenuBarView: View {
     }
 
     // MARK: - Actions
+
+    /// Re-detect the selected project's environment and reset variant/buildType
+    /// if the current selection is no longer valid (e.g. after a branch switch).
+    private func reconcileSelection() {
+        guard let project = selectedProject else { return }
+        DispatchQueue.global(qos: .userInitiated).async {
+            let env = ProjectEnvironmentDetector.detectProjectEnvironment(projectPath: project.path)
+            DispatchQueue.main.async {
+                guard selectedProject?.id == project.id else { return }
+                if !env.buildVariants.isEmpty, !env.buildVariants.contains(selectedVariant) {
+                    selectedVariant = env.buildVariants.first ?? selectedVariant
+                }
+                if !env.buildTypes.isEmpty, !env.buildTypes.contains(selectedBuildType) {
+                    selectedBuildType = env.buildTypes.first ?? selectedBuildType
+                }
+                // Persist refreshed variants/buildTypes onto the stored project so
+                // the build queue and UI reflect the current branch.
+                var updated = project
+                if !env.buildVariants.isEmpty { updated.buildVariants = env.buildVariants }
+                if !env.buildTypes.isEmpty { updated.buildTypes = env.buildTypes }
+                if let module = env.appModulePath { updated.appModulePath = module }
+                updated.detectedVersionName = env.versionName
+                updated.detectedVersionCode = env.versionCode
+                if updated != project {
+                    projectStore.updateProject(updated)
+                    selectedProject = updated
+                }
+            }
+        }
+    }
 
     private func startBuild(project: AndroidProject) {
         withAnimation(.spring(response: 0.3, dampingFraction: 0.85)) {

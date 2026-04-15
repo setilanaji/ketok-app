@@ -93,17 +93,40 @@ jobs:
             };
             const event = verdictMap[parsed.verdict] || 'COMMENT';
 
+            const sevIcon = {
+              critical: '🔴',
+              high: '🟠',
+              medium: '🟡',
+              low: '🔵',
+              info: '⚪',
+            };
+
             const issues = parsed.issues || [];
-            let table = '_No issues found._';
+            let issuesMd = '_No issues found._';
             if (issues.length) {
-              table = '| Severity | File | Line | Category | Message | Suggestion |\n' +
-                      '|---|---|---|---|---|---|\n' +
-                      issues.map(i =>
-                        `| ${i.severity || ''} | \`${i.file || ''}\` | ${i.line || ''} | ${i.category || ''} | ${(i.message||'').replace(/\|/g,'\\|')} | ${(i.suggestion||'').replace(/\|/g,'\\|')} |`
-                      ).join('\n');
+              const counts = issues.reduce((acc, i) => {
+                const s = (i.severity || 'info').toLowerCase();
+                acc[s] = (acc[s] || 0) + 1;
+                return acc;
+              }, {});
+              const countLine = Object.entries(counts)
+                .map(([s, n]) => `${sevIcon[s] || '•'} ${s}: ${n}`)
+                .join(' · ');
+
+              issuesMd = `${countLine}\n\n` + issues.map((i, idx) => {
+                const sev = (i.severity || 'info').toLowerCase();
+                const icon = sevIcon[sev] || '•';
+                const file = i.file || '';
+                const line = i.line ? `:${i.line}` : '';
+                const cat = i.category ? ` _(${i.category})_` : '';
+                const msg = (i.message || '').trim();
+                const sug = (i.suggestion || '').trim();
+                const sugBlock = sug ? `\n\n  **Suggestion:** ${sug}` : '';
+                return `**${idx + 1}. ${icon} ${sev}** — \`${file}${line}\`${cat}\n\n  ${msg}${sugBlock}`;
+              }).join('\n\n---\n\n');
             }
 
-            const body = `### OpenCode Review\n\n**Summary:** ${parsed.summary || '(none)'}\n\n**Verdict:** \`${parsed.verdict}\`\n\n${table}`;
+            const body = `### OpenCode Review\n\n**Summary:** ${parsed.summary || '(none)'}\n\n**Verdict:** \`${parsed.verdict}\`\n\n${issuesMd}`;
 
             await github.rest.pulls.createReview({
               owner: context.repo.owner,

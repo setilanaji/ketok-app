@@ -44,6 +44,10 @@ jobs:
             MOUNT_ARGS="-v $PWD/.opencode:/reviewer/.opencode:ro"
           fi
 
+          IMAGE="${{ secrets.DOCKER_REGISTRY }}/${{ secrets.DOCKER_USERNAME }}/opencode-reviewer:latest"
+
+          docker pull "$IMAGE" >/dev/null 2>&1 || true
+
           docker run --rm \
             -e "${KEY_VAR}=${OPENCODE_API_KEY}" \
             -e "OPENCODE_MODEL=${OPENCODE_MODEL}" \
@@ -51,8 +55,15 @@ jobs:
             -v "$PWD/pr-diff.txt:/workspace/pr-diff.txt:ro" \
             -v "$PWD/commits.txt:/workspace/commits.txt:ro" \
             $MOUNT_ARGS \
-            ${{ secrets.DOCKER_REGISTRY }}/${{ secrets.DOCKER_USERNAME }}/opencode-reviewer:latest \
-            > describe-output.txt 2>&1 || true
+            "$IMAGE" \
+            > describe-output.txt 2> describe-stderr.log || true
+
+          echo "----- describe-output.txt (first 4000 chars) -----"
+          head -c 4000 describe-output.txt || true
+          echo
+          echo "----- describe-stderr.log (first 2000 chars) -----"
+          head -c 2000 describe-stderr.log || true
+          echo
 
       - name: Update PR body
         uses: actions/github-script@v7
@@ -62,8 +73,11 @@ jobs:
             const raw = fs.readFileSync('describe-output.txt', 'utf8').trim();
 
             let parsed = null;
-            const match = raw.match(/\{[\s\S]*\}/);
-            try { parsed = JSON.parse(match ? match[0] : raw); } catch (e) {}
+            const stripped = raw.replace(/```(?:json)?\s*/gi, '').replace(/```/g, '');
+            const start = stripped.indexOf('{');
+            const end = stripped.lastIndexOf('}');
+            const candidate = start !== -1 && end > start ? stripped.slice(start, end + 1) : stripped;
+            try { parsed = JSON.parse(candidate); } catch (e) {}
 
             if (!parsed) {
               console.log('Could not parse LLM output — skipping PR body update.');

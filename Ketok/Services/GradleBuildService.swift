@@ -167,14 +167,35 @@ class GradleBuildService: ObservableObject {
         }
         BuildSoundService.shared.playBuildStarted()
 
-        // Re-detect version from project files before building
+        // Re-detect environment from current project files (handles branch switches)
         var freshProject = project
         let env = ProjectEnvironmentDetector.detectProjectEnvironment(projectPath: project.path)
         freshProject.detectedVersionName = env.versionName
         freshProject.detectedVersionCode = env.versionCode
+        if !env.buildVariants.isEmpty { freshProject.buildVariants = env.buildVariants }
+        if !env.buildTypes.isEmpty { freshProject.buildTypes = env.buildTypes }
+        if let module = env.appModulePath { freshProject.appModulePath = module }
 
-        // Notify project store of updated version (fire-and-forget)
+        // Notify project store of refreshed metadata (fire-and-forget)
         onProjectUpdated?(freshProject)
+
+        // Guard: requested variant/buildType must exist in the freshly-detected project
+        let variantOk = freshProject.buildVariants.isEmpty || freshProject.buildVariants.contains(variant)
+        let buildTypeOk = freshProject.buildTypes.isEmpty || freshProject.buildTypes.contains(buildType)
+        guard variantOk && buildTypeOk else {
+            let placeholder = BuildStatus(project: freshProject, variant: variant, buildType: buildType, outputFormat: outputFormat)
+            let msg = "'\(variant)/\(buildType)' not found in current branch. " +
+                "Available variants: [\(freshProject.buildVariants.joined(separator: ", "))]. " +
+                "Available buildTypes: [\(freshProject.buildTypes.joined(separator: ", "))]."
+            placeholder.state = .failed(error: msg)
+            placeholder.logOutput += "[Ketok] ERROR: \(msg)\n"
+            DispatchQueue.main.async { [weak self] in
+                self?.currentBuild = placeholder
+                self?.activeBuilds.append(placeholder)
+                self?.processNextInQueue()
+            }
+            return
+        }
 
         let build = BuildStatus(project: freshProject, variant: variant, buildType: buildType, outputFormat: outputFormat)
         currentBuild = build

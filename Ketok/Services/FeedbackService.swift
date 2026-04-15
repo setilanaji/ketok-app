@@ -183,7 +183,7 @@ class FeedbackService: ObservableObject {
 
     // MARK: - Submit Feedback
 
-    func submitViaEmail(
+    func submitFeedback(
         type: FeedbackType,
         rating: FeedbackRating,
         message: String,
